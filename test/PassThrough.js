@@ -1,10 +1,10 @@
 import assertRevert from './helpers/assertRevert'
 import { increaseTime, duration } from './helpers/increaseTime'
 
-// const BigNumber = web3.utils.BN
+const BigNumber = web3.BigNumber
 require('chai')
   .use(require('chai-as-promised'))
-  .use(require('chai-bignumber')())
+  .use(require('chai-bignumber')(BigNumber))
   .should()
 
 const AssetRegistryToken = artifacts.require('AssetRegistryTest')
@@ -38,7 +38,6 @@ function getBlock(blockNumber = 'latest') {
 contract('PassThrough', function([_, owner, operator, hacker]) {
   const twoYears = duration.days(365 * 2)
   const transfer = 'transfer(address,uint256)'
-  const approve = 'approve(address,uint256)'
   const foo = 'foo()'
   const transferBytes = '0xa9059cbb'
   const approveBytes = '0x095ea7b3'
@@ -73,6 +72,10 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
         operator,
         fromOwner
       )
+
+      let logs = await getEvents(tempPassThrough, 'MethodDisabled')
+      logs.length.should.be.equal(9)
+
       const blockTime = (await getBlock()).timestamp
       const expires = blockTime + twoYears
 
@@ -86,11 +89,11 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
 
       // Check if methods are set correctly
       let expiresIn = await tempPassThrough.disableMethods(fooBytes)
-      expiresIn.toNumber().should.be.equal(0)
+      expiresIn.should.be.bignumber.equal(0)
 
       expiresIn = await tempPassThrough.disableMethods(approveBytes)
 
-      expiresIn.toNumber().should.be.equal(expires)
+      expiresIn.should.be.bignumber.equal(expires)
     })
   })
 
@@ -98,16 +101,24 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
     it('should disable method', async function() {
       const passThrougMask = await AssetRegistryToken.at(passThrough.address)
       await passThrougMask.transfer(operator, 1, fromOperator)
-      await passThrough.disableMethod(transfer, fromOwner)
+
+      const { logs } = await passThrough.disableMethod(transfer, fromOwner)
+
       const blockTime = (await getBlock()).timestamp
       const expires = blockTime + twoYears
 
+      assertEvent(logs[0], 'MethodDisabled', {
+        _caller: owner,
+        _signatureBytes4: transferBytes,
+        _signature: transfer
+      })
+
       const expiresIn = await passThrough.disableMethods(transferBytes)
-      expiresIn.toNumber().should.be.equal(expires)
+      expiresIn.should.be.bignumber.equal(expires)
 
       await assertRevert(
         passThrougMask.transfer(operator, 1, fromOperator),
-        'Invalid call'
+        'Permission denied'
       )
     })
   })
@@ -119,31 +130,44 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
       await passThrough.disableMethod(transfer, fromOwner)
       await assertRevert(
         passThrougMask.transfer(operator, 1, fromOperator),
-        'Invalid call'
+        'Permission denied'
       )
 
       await increaseTime(twoYears + duration.seconds(1))
       await passThrougMask.transfer(operator, 1, fromOperator)
     })
 
-    it('should allow method by method', async function() {
+    it('should allow method by contract method', async function() {
       const passThrougMask = await AssetRegistryToken.at(passThrough.address)
 
       await passThrough.disableMethod(transfer, fromOwner)
       await assertRevert(
         passThrougMask.transfer(operator, 1, fromOperator),
-        'Invalid call'
+        'Permission denied'
       )
 
-      await passThrough.allowMethod(transfer, fromOwner)
+      const { logs } = await passThrough.allowMethod(transfer, fromOwner)
+      assertEvent(logs[0], 'MethodAllowed', {
+        _caller: owner,
+        _signatureBytes4: transferBytes,
+        _signature: transfer
+      })
+
       await passThrougMask.transfer(operator, 1, fromOperator)
+    })
+
+    it('reverts when trying to allow a method allowed', async function() {
+      await assertRevert(
+        passThrough.allowMethod(transfer, fromOwner),
+        'Method is already allowed'
+      )
     })
   })
 
   describe('fallback', function() {
     it('should call contract methods :: Owner', async function() {
-      await passThrough.allowMethod(transfer, fromOwner)
-      await passThrough.disableMethod(transfer, fromOwner)
+      await passThrough.disableMethod(foo, fromOwner)
+      await passThrough.allowMethod(foo, fromOwner)
     })
 
     it('should call end-contract methods :: Owner', async function() {
@@ -166,13 +190,13 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
       const passThrougMask = await AssetRegistryToken.at(passThrough.address)
       await assertRevert(
         passThrougMask.approve(operator, 1, fromOperator),
-        'Invalid call'
+        'Permission denied'
       )
     })
 
     it('reverts when calling end-contract methods allowed :: Hacker', async function() {
       const passThrougMask = await AssetRegistryToken.at(passThrough.address)
-      await assertRevert(passThrougMask.bar(fromHacker), 'Invalid call')
+      await assertRevert(passThrougMask.bar(fromHacker), 'Permission denied')
     })
 
     it('reverts when calling contract methods :: Hacker', async function() {
@@ -184,7 +208,7 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
       const passThrougMask = await AssetRegistryToken.at(passThrough.address)
       await assertRevert(
         passThrougMask.approve(operator, 1, fromHacker),
-        'Invalid call'
+        'Permission denied'
       )
     })
   })

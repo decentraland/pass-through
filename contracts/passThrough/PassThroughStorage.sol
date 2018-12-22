@@ -9,11 +9,13 @@ contract PassThroughStorage {
 
     event MethodAllowed(
       address indexed _caller,
-      string indexed _methodSignature
+      bytes4 indexed _signatureBytes4,
+      string _signature
     );
 
     event MethodDisabled(
       address indexed _caller,
-      string indexed _methodSignature
+      bytes4 indexed _signatureBytes4,
+      string _signature
     );
 }
