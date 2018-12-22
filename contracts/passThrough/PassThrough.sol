@@ -14,16 +14,16 @@ contract PassThrough is Ownable, PassThroughStorage {
 
         // ERC721 methods
         disableMethod("approve(address,uint256)");
+        disableMethod("setApprovalForAll(address,bool)");
         disableMethod("transferFrom(address,address,uint256)");
         disableMethod("safeTransferFrom(address,address,uint256)");
         disableMethod("safeTransferFrom(address,address,uint256,bytes)");
-        disableMethod("setApprovalForAll(address,bool)");
 
         // EstateRegistry methods
-        disableMethod("transferManyLands(uint256,uint256[],address)");
-        disableMethod("safeTransferFrom(address,address,uint256[])");
-        disableMethod("safeTransferManyFrom(address,address,uint256[],bytes)");
         disableMethod("transferLand(uint256,uint256,address)");
+        disableMethod("transferManyLands(uint256,uint256[],address)");
+        disableMethod("safeTransferManyFrom(address,address,uint256[])");
+        disableMethod("safeTransferManyFrom(address,address,uint256[],bytes)");
 
     }
 
@@ -37,9 +37,22 @@ contract PassThrough is Ownable, PassThroughStorage {
             "Permission denied"
         );
 
-        bool success = estateRegistry.call(msg.data);
-        if (!success) {
-            revert("Execution error");
+        bytes memory _calldata = msg.data;
+        uint256 _calldataSize = msg.data.length;
+        address _dst = estateRegistry;
+
+        // solium-disable-next-line security/no-inline-assembly
+        assembly {
+            let result := call(sub(gas, 10000), _dst, 0, add(_calldata, 0x20), _calldataSize, 0, 0)
+            let size := returndatasize
+
+            let ptr := mload(0x40)
+            returndatacopy(ptr, 0, size)
+
+            // revert instead of invalid() bc if the underlying call failed with invalid() it already wasted gas.
+            // if the call returned error data, forward it
+            switch result case 0 { revert(ptr, size) }
+            default { return(ptr, size) }
         }
     }
 
@@ -94,6 +107,7 @@ contract PassThrough is Ownable, PassThroughStorage {
     function convertToBytes4(bytes memory _signature) internal pure returns (bytes4) {
         require(_signature.length == 4, "Invalid method signature");
         bytes4 signatureBytes4;
+        // solium-disable-next-line security/no-inline-assembly
         assembly {
             signatureBytes4 := mload(add(_signature, 32))
         }
