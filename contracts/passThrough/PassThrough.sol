@@ -9,8 +9,8 @@ contract PassThrough is Ownable, PassThroughStorage {
     * @dev Constructor of the contract.
     */
     constructor(address _estateRegistry, address _operator) Ownable() public {
-        operator = _operator;
         estateRegistry = _estateRegistry;
+        operator = _operator;
 
         // ERC721 methods
         disableMethod("approve(address,uint256)");
@@ -33,7 +33,7 @@ contract PassThrough is Ownable, PassThroughStorage {
     */
     function() external {
         require(
-            isOwner() || (isOperator() && isMethodAllowed(msg.sig)),
+            isOperator() && isMethodAllowed(msg.sig) || isOwner(),
             "Permission denied"
         );
 
@@ -51,8 +51,8 @@ contract PassThrough is Ownable, PassThroughStorage {
 
             // revert instead of invalid() bc if the underlying call failed with invalid() it already wasted gas.
             // if the call returned error data, forward it
-            switch result case 0 { revert(ptr, size) }
-            default { return(ptr, size) }
+            if eq(result, 0) { revert(ptr, size) }
+            return(ptr, size)
         }
     }
 
