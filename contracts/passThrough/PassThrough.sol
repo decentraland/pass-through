@@ -12,18 +12,21 @@ contract PassThrough is Ownable, PassThroughStorage {
         estateRegistry = _estateRegistry;
         operator = _operator;
 
+        // Set target
+        setTarget(estateRegistry);
+
         // ERC721 methods
-        disableMethod("approve(address,uint256)");
-        disableMethod("setApprovalForAll(address,bool)");
-        disableMethod("transferFrom(address,address,uint256)");
-        disableMethod("safeTransferFrom(address,address,uint256)");
-        disableMethod("safeTransferFrom(address,address,uint256,bytes)");
+        disableMethod("approve(address,uint256)", MAX_EXPIRATION_TIME);
+        disableMethod("setApprovalForAll(address,bool)", MAX_EXPIRATION_TIME);
+        disableMethod("transferFrom(address,address,uint256)", MAX_EXPIRATION_TIME);
+        disableMethod("safeTransferFrom(address,address,uint256)", MAX_EXPIRATION_TIME);
+        disableMethod("safeTransferFrom(address,address,uint256,bytes)", MAX_EXPIRATION_TIME);
 
         // EstateRegistry methods
-        disableMethod("transferLand(uint256,uint256,address)");
-        disableMethod("transferManyLands(uint256,uint256[],address)");
-        disableMethod("safeTransferManyFrom(address,address,uint256[])");
-        disableMethod("safeTransferManyFrom(address,address,uint256[],bytes)");
+        disableMethod("transferLand(uint256,uint256,address)", MAX_EXPIRATION_TIME);
+        disableMethod("transferManyLands(uint256,uint256[],address)", MAX_EXPIRATION_TIME);
+        disableMethod("safeTransferManyFrom(address,address,uint256[])", MAX_EXPIRATION_TIME);
+        disableMethod("safeTransferManyFrom(address,address,uint256[],bytes)", MAX_EXPIRATION_TIME);
 
     }
 
@@ -39,7 +42,7 @@ contract PassThrough is Ownable, PassThroughStorage {
 
         bytes memory _calldata = msg.data;
         uint256 _calldataSize = msg.data.length;
-        address _dst = estateRegistry;
+        address _dst = target;
 
         // solium-disable-next-line security/no-inline-assembly
         assembly {
@@ -73,14 +76,27 @@ contract PassThrough is Ownable, PassThroughStorage {
         return disableMethods[_signature] < block.timestamp;
     }
 
+    function setTarget(address _target) public {
+        require(
+            isOperator() || isOwner(),
+            "Permission denied"
+        );
+
+        emit TargetChanged(msg.sender, target, _target);
+        target = _target;
+    }
+
     /**
     * @dev Disable a method for two years
     * Note that the input expected is the method signature as 'transfer(address,uint256)'
     * @param _signature string - method signature
     */
-    function disableMethod(string memory _signature) public onlyOwner {
+    function disableMethod(string memory _signature, uint256 _time) public onlyOwner {
+        require(_time > 0, "Time should be greater than 0");
+        require(_time <= MAX_EXPIRATION_TIME, "Time should be lower than 2 years");
+
         bytes4 signatureBytes4 = convertToBytes4(abi.encodeWithSignature(_signature));
-        disableMethods[signatureBytes4] = block.timestamp + (365 * 2 days);
+        disableMethods[signatureBytes4] = block.timestamp + _time;
 
         emit MethodDisabled(msg.sender, signatureBytes4, _signature);
     }
@@ -112,5 +128,28 @@ contract PassThrough is Ownable, PassThroughStorage {
             signatureBytes4 := mload(add(_signature, 32))
         }
         return signatureBytes4;
+    }
+
+    /**
+    * @notice Handle the receipt of an NFT
+    * @dev The ERC721 smart contract calls this function on the recipient
+    * after a `safetransfer`. This function MAY throw to revert and reject the
+    * transfer. Return of other than the magic value MUST result in the
+    * transaction being reverted.
+    * Note: the contract address is always the message sender.
+    * @return `bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"))`
+    */
+    function onERC721Received(
+        address /*_from*/,
+        address /*_to*/,
+        uint256 /*_tokenId*/,
+        bytes memory /*_data*/
+    )
+        public
+        view
+        returns (bytes4)
+    {
+        require(msg.sender == estateRegistry, "Token not accepted");
+        return ERC721_Received;
     }
 }

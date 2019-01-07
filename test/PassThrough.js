@@ -35,7 +35,7 @@ function getBlock(blockNumber = 'latest') {
   return web3.eth.getBlock(blockNumber)
 }
 
-contract('PassThrough', function([_, owner, operator, hacker]) {
+contract('PassThrough', function([_, owner, operator, holder, hacker]) {
   const zeroAddress = '0x0000000000000000000000000000000000000000'
   const twoYears = duration.days(365 * 2)
   const balanceOf = 'balanceOf(address)'
@@ -46,13 +46,16 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
   const fooBytes = '0xc2985578'
   const tokenOne = 1
   const tokenTwo = 2
+  const tokenThree = 3
 
   let passThrough
   let passThrougMask
   let assetRegistry
+  let otherAssetRegistry
 
   const fromOwner = { from: owner }
   const fromOperator = { from: operator }
+  const fromHolder = { from: holder }
   const fromHacker = { from: hacker }
 
   const creationParams = {
@@ -63,6 +66,8 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
 
   beforeEach(async function() {
     assetRegistry = await AssetRegistryToken.new(creationParams)
+    otherAssetRegistry = await AssetRegistryToken.new(creationParams)
+
     passThrough = await PassThrough.new(
       assetRegistry.address,
       operator,
@@ -70,11 +75,14 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
     )
 
     // Disable balanceOf for testing
-    await passThrough.disableMethod(balanceOf, fromOwner)
+    await passThrough.disableMethod(balanceOf, twoYears, fromOwner)
 
     // Mint tokens
     assetRegistry.mint(passThrough.address, tokenOne)
     assetRegistry.mint(passThrough.address, tokenTwo)
+
+    assetRegistry.mint(holder, tokenThree)
+    otherAssetRegistry.mint(holder, tokenOne)
 
     passThrougMask = await AssetRegistryToken.at(passThrough.address)
   })
@@ -113,7 +121,7 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
 
   describe('fallback', function() {
     it('should call contract methods :: Owner', async function() {
-      await passThrough.disableMethod(foo, fromOwner)
+      await passThrough.disableMethod(foo, twoYears, fromOwner)
       await passThrough.allowMethod(foo, fromOwner)
     })
 
@@ -128,7 +136,9 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
 
     it('reverts when calling contract methods :: Operator', async function() {
       await assertRevert(passThrough.allowMethod(balanceOf, fromOperator))
-      await assertRevert(passThrough.disableMethod(balanceOf, fromOperator))
+      await assertRevert(
+        passThrough.disableMethod(balanceOf, twoYears, fromOperator)
+      )
     })
 
     it('reverts when calling end-contract methods disabled :: Operator', async function() {
@@ -144,7 +154,9 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
 
     it('reverts when calling contract methods :: Hacker', async function() {
       await assertRevert(passThrough.allowMethod(balanceOf, fromHacker))
-      await assertRevert(passThrough.disableMethod(balanceOf, fromHacker))
+      await assertRevert(
+        passThrough.disableMethod(balanceOf, twoYears, fromHacker)
+      )
     })
 
     it('reverts when calling end-contract methods :: Hacker', async function() {
@@ -159,12 +171,17 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
 
   describe('disableMethod', function() {
     it('should disable method', async function() {
+      const twoDays = duration.days(2)
       await passThrougMask.ownerOf(tokenOne, fromOperator)
 
-      const { logs } = await passThrough.disableMethod(ownerOf, fromOwner)
+      const { logs } = await passThrough.disableMethod(
+        ownerOf,
+        twoDays,
+        fromOwner
+      )
 
       const blockTime = (await getBlock()).timestamp
-      const expires = blockTime + twoYears
+      const expires = blockTime + twoDays
 
       assertEvent(logs[0], 'MethodDisabled', {
         _caller: owner,
@@ -184,7 +201,7 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
 
   describe('allowMethod', function() {
     it('should allow method after expired', async function() {
-      await passThrough.disableMethod(ownerOf, fromOwner)
+      await passThrough.disableMethod(ownerOf, twoYears, fromOwner)
       await assertRevert(
         passThrougMask.ownerOf(tokenOne, fromOperator),
         'Permission denied'
@@ -192,10 +209,20 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
 
       await increaseTime(twoYears + duration.seconds(1))
       await passThrougMask.ownerOf(tokenOne, fromOperator)
+
+      const twoDays = duration.days(2)
+      await passThrough.disableMethod(ownerOf, twoDays, fromOwner)
+      await assertRevert(
+        passThrougMask.ownerOf(tokenOne, fromOperator),
+        'Permission denied'
+      )
+
+      await increaseTime(twoDays + duration.seconds(1))
+      await passThrougMask.ownerOf(tokenOne, fromOperator)
     })
 
     it('should allow method by contract method', async function() {
-      await passThrough.disableMethod(ownerOf, fromOwner)
+      await passThrough.disableMethod(ownerOf, twoYears, fromOwner)
       await assertRevert(
         passThrougMask.ownerOf(tokenOne, fromOperator),
         'Permission denied'
@@ -219,7 +246,106 @@ contract('PassThrough', function([_, owner, operator, hacker]) {
     })
   })
 
-  describe.only('End-2-End', function() {
+  describe('setTarget', function() {
+    let newTarget
+    beforeEach(async function() {
+      newTarget = await AssetRegistryToken.new(creationParams)
+    })
+
+    it('should change target by owner', async function() {
+      let target = await passThrough.target()
+      target.should.be.equal(assetRegistry.address)
+
+      const { logs } = await passThrough.setTarget(newTarget.address, fromOwner)
+
+      logs.length.should.be.equal(1)
+      assertEvent(logs[0], 'TargetChanged', {
+        _caller: owner,
+        _oldTarget: target,
+        _newTarget: newTarget.address
+      })
+
+      target = await passThrough.target()
+      target.should.be.equal(newTarget.address)
+    })
+
+    it('should change target by operator', async function() {
+      let target = await passThrough.target()
+      target.should.be.equal(assetRegistry.address)
+
+      const { logs } = await passThrough.setTarget(
+        newTarget.address,
+        fromOperator
+      )
+
+      logs.length.should.be.equal(1)
+      assertEvent(logs[0], 'TargetChanged', {
+        _caller: operator,
+        _oldTarget: target,
+        _newTarget: newTarget.address
+      })
+
+      target = await passThrough.target()
+      target.should.be.equal(newTarget.address)
+    })
+
+    it('reverts when changing target by hacker', async function() {
+      let target = await passThrough.target()
+      target.should.be.equal(assetRegistry.address)
+
+      await assertRevert(
+        passThrough.setTarget(newTarget.address, fromHacker),
+        'Permission denied'
+      )
+    })
+  })
+
+  describe('onERC721Received', function() {
+    it('should receive registry tokens', async function() {
+      let assetOwner = await assetRegistry.ownerOf(tokenThree)
+      assetOwner.should.be.equal(holder)
+
+      await assetRegistry.safeTransferFrom(
+        holder,
+        passThrough.address,
+        tokenThree,
+        fromHolder
+      )
+
+      assetOwner = await assetRegistry.ownerOf(tokenThree)
+      assetOwner.should.be.equal(passThrough.address)
+    })
+
+    it('reverts when receiveing not registry tokens', async function() {
+      let assetOwner = await otherAssetRegistry.ownerOf(tokenOne)
+      assetOwner.should.be.equal(holder)
+
+      await assertRevert(
+        otherAssetRegistry.safeTransferFrom(
+          holder,
+          passThrough.address,
+          tokenOne,
+          fromHolder
+        )
+      )
+    })
+  })
+
+  describe('End-2-End', function() {
+    beforeEach(async function() {
+      assetRegistry = await AssetRegistryToken.new(creationParams)
+
+      // Disable balanceOf for testing
+      await passThrough.disableMethod(balanceOf, twoYears, fromOwner)
+
+      // Mint tokens
+      assetRegistry.mint(passThrough.address, tokenOne)
+      assetRegistry.mint(passThrough.address, tokenTwo)
+
+      passThrougMask = await AssetRegistryToken.at(passThrough.address)
+
+      await passThrough.setTarget(assetRegistry.address, fromOwner)
+    })
     describe('Disable methods', function() {
       describe('ERC721', function() {
         describe('approve', function() {
