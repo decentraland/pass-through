@@ -155,7 +155,7 @@ contract PassThrough is Ownable, PassThroughStorage {
 
             // revert instead of invalid() bc if the underlying call failed with invalid() it already wasted gas.
             // if the call returned error data, forward it
-            if eq(result, 0) { revert(ptr, size) }
+            if iszero(result) { revert(ptr, size) }
             return(ptr, size)
         }
     }
