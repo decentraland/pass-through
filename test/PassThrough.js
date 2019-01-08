@@ -9,6 +9,7 @@ require('chai')
 
 const AssetRegistryToken = artifacts.require('AssetRegistryTest')
 const PassThrough = artifacts.require('PassThrough')
+const ERC20 = artifacts.require('FakeERC20')
 
 function assertEvent(log, expectedEventName, expectedArgs) {
   const { event, args } = log
@@ -52,6 +53,7 @@ contract('PassThrough', function([_, owner, operator, holder, hacker]) {
   let passThrougMask
   let assetRegistry
   let otherAssetRegistry
+  let mana
 
   const fromOwner = { from: owner }
   const fromOperator = { from: operator }
@@ -65,6 +67,9 @@ contract('PassThrough', function([_, owner, operator, holder, hacker]) {
   }
 
   beforeEach(async function() {
+    mana = await ERC20.new(creationParams)
+    await mana.mint(web3.toWei(10, 'ether'), holder)
+
     assetRegistry = await AssetRegistryToken.new(creationParams)
     otherAssetRegistry = await AssetRegistryToken.new(creationParams)
 
@@ -289,6 +294,61 @@ contract('PassThrough', function([_, owner, operator, holder, hacker]) {
       target.should.be.equal(newTarget.address)
     })
 
+    it('should rescue erc20 tokens', async function() {
+      const amount = web3.toWei(10, 'ether')
+      let contractBalance = await mana.balanceOf(passThrough.address)
+      contractBalance.should.be.bignumber.equal(0)
+
+      let holderBalance = await mana.balanceOf(holder)
+      holderBalance.should.be.bignumber.equal(amount)
+
+      await mana.transfer(passThrough.address, amount, fromHolder)
+
+      contractBalance = await mana.balanceOf(passThrough.address)
+      contractBalance.should.be.bignumber.equal(amount)
+
+      holderBalance = await mana.balanceOf(holder)
+      holderBalance.should.be.bignumber.equal(0)
+
+      passThrougMask = await ERC20.at(passThrough.address)
+
+      await passThrough.setTarget(mana.address, fromOperator)
+      await passThrougMask.transfer(holder, amount, fromOperator)
+
+      contractBalance = await mana.balanceOf(passThrough.address)
+      contractBalance.should.be.bignumber.equal(0)
+
+      holderBalance = await mana.balanceOf(holder)
+      holderBalance.should.be.bignumber.equal(amount)
+    })
+
+    it('should rescue ERC721 tokens by the owner', async function() {
+      let assetOwner = await otherAssetRegistry.ownerOf(tokenOne)
+      assetOwner.should.be.equal(holder)
+
+      await otherAssetRegistry.transferFrom(
+        holder,
+        passThrough.address,
+        tokenOne,
+        fromHolder
+      )
+
+      assetOwner = await otherAssetRegistry.ownerOf(tokenOne)
+      assetOwner.should.be.equal(passThrough.address)
+
+      passThrougMask = await AssetRegistryToken.at(passThrough.address)
+
+      await passThrough.setTarget(otherAssetRegistry.address, fromOperator)
+      await passThrougMask.transferFrom(
+        passThrough.address,
+        holder,
+        tokenOne,
+        fromOwner
+      )
+      assetOwner = await otherAssetRegistry.ownerOf(tokenOne)
+      assetOwner.should.be.equal(holder)
+    })
+
     it('reverts when changing target by hacker', async function() {
       let target = await passThrough.target()
       target.should.be.equal(assetRegistry.address)
@@ -316,7 +376,7 @@ contract('PassThrough', function([_, owner, operator, holder, hacker]) {
       assetOwner.should.be.equal(passThrough.address)
     })
 
-    it('reverts when receiveing not registry tokens', async function() {
+    it('reverts when receiving not registry tokens', async function() {
       let assetOwner = await otherAssetRegistry.ownerOf(tokenOne)
       assetOwner.should.be.equal(holder)
 
