@@ -5,7 +5,7 @@ import "openzeppelin-solidity/contracts/token/ERC721/ERC721.sol";
 
 contract AssetRegistryTest is ERC721 {
     constructor() ERC721() public {}
-
+    
     function mint(address to, uint256 id) external {
         return super._mint(to, id);
     }
@@ -43,4 +43,12 @@ contract AssetRegistryTest is ERC721 {
     }
 
     function bar() external pure { }
+
+    function callToRevert() public pure {
+        revert("This method has reverted");
+    }
+
+    function receiveEther() public payable {
+        require(msg.value > 0, "Value should be gt than 0");
+    }
 }

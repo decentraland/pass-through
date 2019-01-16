@@ -10,6 +10,7 @@ require('chai')
 const AssetRegistryToken = artifacts.require('AssetRegistryTest')
 const PassThrough = artifacts.require('PassThrough')
 const ERC20 = artifacts.require('FakeERC20')
+const ContractWithPayable = artifacts.require('PayableContract')
 
 function assertEvent(log, expectedEventName, expectedArgs) {
   const { event, args } = log
@@ -54,6 +55,7 @@ contract('PassThrough', function([_, owner, operator, holder, hacker]) {
   let assetRegistry
   let otherAssetRegistry
   let mana
+  let contractWithPayable
 
   const fromOwner = { from: owner }
   const fromOperator = { from: operator }
@@ -72,6 +74,7 @@ contract('PassThrough', function([_, owner, operator, holder, hacker]) {
 
     assetRegistry = await AssetRegistryToken.new(creationParams)
     otherAssetRegistry = await AssetRegistryToken.new(creationParams)
+    contractWithPayable = await ContractWithPayable.new(creationParams)
 
     passThrough = await PassThrough.new(
       assetRegistry.address,
@@ -133,6 +136,62 @@ contract('PassThrough', function([_, owner, operator, holder, hacker]) {
     it('should call end-contract methods :: Owner', async function() {
       await passThrougMask.balanceOf(operator, fromOwner)
       await passThrougMask.bar(fromOwner)
+    })
+
+    it('should be call with Ether', async function() {
+      let targetBalance = await web3.eth.getBalance(assetRegistry.address)
+      targetBalance.should.be.bignumber.equal(0)
+
+      let passThroughBalance = await web3.eth.getBalance(passThrough.address)
+      passThroughBalance.should.be.bignumber.equal(0)
+
+      const value = web3.toWei(1, 'Ether')
+      await passThrougMask.receiveEther({
+        ...fromOwner,
+        value
+      })
+
+      targetBalance = await web3.eth.getBalance(assetRegistry.address)
+      targetBalance.should.be.bignumber.equal(value)
+
+      passThroughBalance = await web3.eth.getBalance(passThrough.address)
+      passThroughBalance.should.be.bignumber.equal(0)
+    })
+
+    it('should forward Ether when calling a target contract with the fallback function payable', async function() {
+      let targetBalance = await web3.eth.getBalance(contractWithPayable.address)
+      targetBalance.should.be.bignumber.equal(0)
+
+      let passThroughBalance = await web3.eth.getBalance(passThrough.address)
+      passThroughBalance.should.be.bignumber.equal(0)
+
+      const value = web3.toWei(1, 'Ether')
+      await passThrough.setTarget(contractWithPayable.address, fromOwner)
+      await passThrough.sendTransaction({
+        ...fromOwner,
+        value
+      })
+
+      targetBalance = await web3.eth.getBalance(contractWithPayable.address)
+      targetBalance.should.be.bignumber.equal(value)
+
+      passThroughBalance = await web3.eth.getBalance(passThrough.address)
+      passThroughBalance.should.be.bignumber.equal(0)
+    })
+
+    it('reverts when sending Ether to the target without the fallback function payable', async function() {
+      let balance = await web3.eth.getBalance(passThrough.address)
+      balance.should.be.bignumber.equal(0)
+
+      const value = web3.toWei(1, 'Ether')
+      await assertRevert(
+        passThrough.sendTransaction({
+          ...fromOwner,
+          value
+        })
+      )
+      balance = await web3.eth.getBalance(passThrough.address)
+      balance.should.be.bignumber.equal(0)
     })
 
     it('should call end-contract methods allowed :: Operator', async function() {
@@ -347,6 +406,31 @@ contract('PassThrough', function([_, owner, operator, holder, hacker]) {
       )
       assetOwner = await otherAssetRegistry.ownerOf(tokenOne)
       assetOwner.should.be.equal(holder)
+    })
+
+    it('reverts when changing target to a not contract address', async function() {
+      let target = await passThrough.target()
+      target.should.be.equal(assetRegistry.address)
+
+      await assertRevert(
+        passThrough.setTarget(owner, fromOwner),
+        'The target should be a contract and different of the pass-throug contract'
+      )
+    })
+
+    it('reverts when changing target to be the same as the pass-trough contract', async function() {
+      let target = await passThrough.target()
+      target.should.be.equal(assetRegistry.address)
+
+      await assertRevert(
+        passThrough.setTarget(passThrough.address, fromOwner),
+        'The target should be a contract and different of the pass-throug contract'
+      )
+
+      await assertRevert(
+        passThrough.setTarget(passThrough.address, fromOperator),
+        'The target should be a contract and different of the pass-throug contract'
+      )
     })
 
     it('reverts when changing target by hacker', async function() {

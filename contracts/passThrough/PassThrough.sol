@@ -1,10 +1,13 @@
 pragma solidity ^0.4.24;
 
 import "openzeppelin-solidity/contracts/ownership/Ownable.sol";
+import "openzeppelin-solidity/contracts/utils/Address.sol";
 import "./PassThroughStorage.sol";
 
 
 contract PassThrough is Ownable, PassThroughStorage {
+    using Address for address;
+
     /**
     * @dev Constructor of the contract.
     */
@@ -34,7 +37,7 @@ contract PassThrough is Ownable, PassThroughStorage {
     * @dev Fallback function could be called by the operator, if the method is allowed, or
     * by the owner. If the call was unsuccessful will revert.
     */
-    function() external {
+    function() external payable {
         require(
             isOperator() && isMethodAllowed(msg.sig) || isOwner(),
             "Permission denied"
@@ -43,10 +46,11 @@ contract PassThrough is Ownable, PassThroughStorage {
         bytes memory _calldata = msg.data;
         uint256 _calldataSize = msg.data.length;
         address _dst = target;
+        uint256 _msgValue = msg.value;
 
         // solium-disable-next-line security/no-inline-assembly
         assembly {
-            let result := call(sub(gas, 10000), _dst, 0, add(_calldata, 0x20), _calldataSize, 0, 0)
+            let result := call(sub(gas, 10000), _dst, _msgValue, add(_calldata, 0x20), _calldataSize, 0, 0)
             let size := returndatasize
 
             let ptr := mload(0x40)
@@ -77,6 +81,11 @@ contract PassThrough is Ownable, PassThroughStorage {
     }
 
     function setTarget(address _target) public {
+        require(
+            _target.isContract() && _target != address(this), 
+            "The target should be a contract and different of the pass-throug contract"
+        );
+
         require(
             isOperator() || isOwner(),
             "Permission denied"
