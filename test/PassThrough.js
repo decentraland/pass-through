@@ -138,6 +138,17 @@ contract('PassThrough', function([_, owner, operator, holder, hacker]) {
       await passThrougMask.bar(fromOwner)
     })
 
+    it('should forward revert when calling end-contract methods', async function() {
+      await assertRevert(
+        passThrougMask.callToRevert(fromOwner),
+        'This method has reverted'
+      )
+      await assertRevert(
+        passThrougMask.callToRevert(fromOperator),
+        'This method has reverted'
+      )
+    })
+
     it('should be call with Ether', async function() {
       let targetBalance = await web3.eth.getBalance(assetRegistry.address)
       targetBalance.should.be.bignumber.equal(0)
