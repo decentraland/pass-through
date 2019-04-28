@@ -9,6 +9,7 @@ require('chai')
 
 const AssetRegistryToken = artifacts.require('AssetRegistryTest')
 const PassThrough = artifacts.require('PassThrough')
+const PassThroughManager = artifacts.require('PassThroughManager')
 const ERC20 = artifacts.require('FakeERC20')
 const ContractWithPayable = artifacts.require('PayableContract')
 
@@ -37,7 +38,7 @@ function getBlock(blockNumber = 'latest') {
   return web3.eth.getBlock(blockNumber)
 }
 
-contract('PassThrough', function([_, owner, operator, holder, hacker]) {
+contract('PassThrough', function([deployer, owner, operator, holder, hacker]) {
   const zeroAddress = '0x0000000000000000000000000000000000000000'
   const twoYears = duration.days(365 * 2)
   const balanceOf = 'balanceOf(address)'
@@ -935,6 +936,114 @@ contract('PassThrough', function([_, owner, operator, holder, hacker]) {
           })
         })
       })
+    })
+  })
+
+  describe('PassThroughManager', function() {
+    const fromDeployer = { from: deployer }
+    let passThroughManager
+    beforeEach(async function() {
+      passThroughManager = await PassThroughManager.new()
+      await passThrough.transferOwnership(passThroughManager.address, fromOwner)
+    })
+
+    it('should be owneable by deployer', async function() {
+      const owner = await passThroughManager.owner()
+      owner.should.be.equal(deployer)
+
+      let isOwner = await passThroughManager.contract['isOwner'][''](
+        fromDeployer
+      )
+      isOwner.should.be.equal(true)
+      isOwner = await passThroughManager.contract['isOwner'][''](fromHacker)
+      isOwner.should.be.equal(false)
+    })
+
+    it('should own a passThrough', async function() {
+      const owner = await passThrough.owner()
+      owner.should.be.equal(passThroughManager.address)
+
+      const isOwner = await passThroughManager.isOwner(passThrough.address)
+      isOwner.should.be.equal(true)
+    })
+
+    it('should disable a method', async function() {
+      const twoDays = duration.days(2)
+      await passThrougMask.ownerOf(tokenOne, fromOperator)
+
+      await passThroughManager.disableMethod(
+        passThrough.address,
+        ownerOf,
+        twoDays,
+        fromDeployer
+      )
+
+      const logs = await getEvents(passThrough, 'MethodDisabled')
+
+      const blockTime = (await getBlock()).timestamp
+      const expires = blockTime + twoDays
+
+      assertEvent(logs[0], 'MethodDisabled', {
+        _caller: passThroughManager.address,
+        _signatureBytes4: ownerOfBytes,
+        _signature: ownerOf
+      })
+
+      const expiresIn = await passThrough.disableMethods(ownerOfBytes)
+      expiresIn.should.be.bignumber.equal(expires)
+
+      await assertRevert(
+        passThrougMask.ownerOf(tokenOne, fromOperator),
+        'Permission denied'
+      )
+    })
+
+    it('should allow a method', async function() {
+      await passThroughManager.disableMethod(
+        passThrough.address,
+        ownerOf,
+        twoYears,
+        fromDeployer
+      )
+      await assertRevert(
+        passThrougMask.ownerOf(tokenOne, fromOperator),
+        'Permission denied'
+      )
+
+      await passThroughManager.allowMethod(
+        passThrough.address,
+        ownerOf,
+        fromDeployer
+      )
+
+      const logs = await getEvents(passThrough, 'MethodAllowed')
+      assertEvent(logs[0], 'MethodAllowed', {
+        _caller: passThroughManager.address,
+        _signatureBytes4: ownerOfBytes,
+        _signature: ownerOf
+      })
+
+      await passThrougMask.ownerOf(tokenOne, fromOperator)
+    })
+
+    it('reverts when calling a method by not the owner', async function() {
+      await assertRevert(
+        passThroughManager.disableMethod(
+          passThrough.address,
+          ownerOf,
+          twoYears,
+          fromHacker
+        )
+      )
+
+      await assertRevert(
+        passThroughManager.allowMethod(
+          passThrough.address,
+          ownerOf,
+          twoYears,
+          fromHacker
+        )
+      )
     })
   })
 })

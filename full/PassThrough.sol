@@ -73,6 +73,33 @@ contract Ownable {
     }
 }
 
+// File: openzeppelin-solidity/contracts/utils/Address.sol
+
+/**
+ * Utility library of inline functions on addresses
+ */
+library Address {
+    /**
+     * Returns whether the target address is a contract
+     * @dev This function will return false if invoked during the constructor of a contract,
+     * as the code is not actually created until after the constructor finishes.
+     * @param account address of the account to check
+     * @return whether the target address is a contract
+     */
+    function isContract(address account) internal view returns (bool) {
+        uint256 size;
+        // XXX Currently there is no better way to check if there is a contract in an address
+        // than to check the size of the code at that address.
+        // See https://ethereum.stackexchange.com/a/14016/36603
+        // for more details about how this works.
+        // TODO Check this again before the Serenity release, because all addresses will be
+        // contracts then.
+        // solium-disable-next-line security/no-inline-assembly
+        assembly { size := extcodesize(account) }
+        return size > 0;
+    }
+}
+
 // File: contracts/passThrough/PassThroughStorage.sol
 
 contract PassThroughStorage {
@@ -106,6 +133,8 @@ contract PassThroughStorage {
 // File: contracts/passThrough/PassThrough.sol
 
 contract PassThrough is Ownable, PassThroughStorage {
+    using Address for address;
+
     /**
     * @dev Constructor of the contract.
     */
@@ -135,7 +164,7 @@ contract PassThrough is Ownable, PassThroughStorage {
     * @dev Fallback function could be called by the operator, if the method is allowed, or
     * by the owner. If the call was unsuccessful will revert.
     */
-    function() external {
+    function() external payable {
         require(
             isOperator() && isMethodAllowed(msg.sig) || isOwner(),
             "Permission denied"
@@ -144,10 +173,11 @@ contract PassThrough is Ownable, PassThroughStorage {
         bytes memory _calldata = msg.data;
         uint256 _calldataSize = msg.data.length;
         address _dst = target;
+        uint256 _msgValue = msg.value;
 
         // solium-disable-next-line security/no-inline-assembly
         assembly {
-            let result := call(sub(gas, 10000), _dst, 0, add(_calldata, 0x20), _calldataSize, 0, 0)
+            let result := call(sub(gas, 10000), _dst, _msgValue, add(_calldata, 0x20), _calldataSize, 0, 0)
             let size := returndatasize
 
             let ptr := mload(0x40)
@@ -178,6 +208,11 @@ contract PassThrough is Ownable, PassThroughStorage {
     }
 
     function setTarget(address _target) public {
+        require(
+            _target.isContract() && _target != address(this), 
+            "The target should be a contract and different of the pass-throug contract"
+        );
+
         require(
             isOperator() || isOwner(),
             "Permission denied"
