@@ -1036,13 +1036,15 @@ contract('PassThrough', function([deployer, owner, operator, holder, hacker]) {
         )
       )
 
+      await passThroughManager.disableMethod(
+        passThrough.address,
+        ownerOf,
+        twoYears,
+        fromDeployer
+      )
+
       await assertRevert(
-        passThroughManager.allowMethod(
-          passThrough.address,
-          ownerOf,
-          twoYears,
-          fromHacker
-        )
+        passThroughManager.allowMethod(passThrough.address, ownerOf, fromHacker)
       )
     })
   })
