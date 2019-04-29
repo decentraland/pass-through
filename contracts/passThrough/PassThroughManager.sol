@@ -11,7 +11,7 @@ interface IPassThrough {
 
 contract PassThroughManager is Ownable {
     // Maximum time where a method can be disabled
-    uint256 public constant MAX_TIME = 1609372800; // Seconds for 12/31/2020
+    uint256 public constant MAX_TIME = 1609459199; // Seconds for 12/31/2020
 
     /**
     * @dev Check if the target is owned by the contract

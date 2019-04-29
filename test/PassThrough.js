@@ -100,7 +100,7 @@ contract('PassThrough', function([deployer, owner, operator, holder, hacker]) {
   describe('PassThroughManager', function() {
     const fromDeployer = { from: deployer }
     const twoDays = duration.days(2)
-    const MAX_TIME = 1609372800
+    const MAX_TIME = 1609459199
 
     let passThroughManager
 
@@ -136,7 +136,7 @@ contract('PassThrough', function([deployer, owner, operator, holder, hacker]) {
       const date = new Date(maxTime.toNumber() * 1000)
       date.getFullYear().should.be.equal(2020)
       date.getMonth().should.be.equal(11)
-      date.getDate().should.be.equal(30)
+      date.getDate().should.be.equal(31)
     })
 
     it('should disable a method', async function() {
@@ -227,7 +227,7 @@ contract('PassThrough', function([deployer, owner, operator, holder, hacker]) {
         passThroughManager.disableMethod(
           passThrough.address,
           ownerOf,
-          MAX_TIME - blockTime + duration.seconds(1),
+          MAX_TIME - blockTime + duration.days(1),
           fromDeployer
         ),
         'The time should be lower than permitted'
@@ -240,7 +240,7 @@ contract('PassThrough', function([deployer, owner, operator, holder, hacker]) {
         passThroughManager.disableMethod(
           passThrough.address,
           ownerOf,
-          duration.seconds(1),
+          duration.days(1),
           fromDeployer
         ),
         'The time should be lower than permitted'
