@@ -10,6 +10,9 @@ interface IPassThrough {
 
 
 contract PassThroughManager is Ownable {
+    // Maximum time where a method can be disabled
+    uint256 public constant MAX_TIME = 1609372800; // Seconds for 12/31/2020
+
     /**
     * @dev Check if the target is owned by the contract
     * @return bool whether the target is owned by the contract or not
@@ -33,6 +36,10 @@ contract PassThroughManager is Ownable {
         public
         onlyOwner
     {
+        require(
+            _time <= MAX_TIME - block.timestamp,
+            "The time should be lower than permitted"
+        );
         _target.disableMethod(_signature, _time);
     }
 
