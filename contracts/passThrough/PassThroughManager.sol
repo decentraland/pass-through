@@ -37,7 +37,7 @@ contract PassThroughManager is Ownable {
         onlyOwner
     {
         require(
-            _time <= MAX_TIME - block.timestamp,
+            _time + block.timestamp <= MAX_TIME,
             "The time should be lower than permitted"
         );
         _target.disableMethod(_signature, _time);

@@ -245,6 +245,20 @@ contract('PassThrough', function([deployer, owner, operator, holder, hacker]) {
         ),
         'The time should be lower than permitted'
       )
+
+      await increaseTime(blockTime)
+      blockTime = (await getBlock()).timestamp
+
+      blockTime.should.be.gt(MAX_TIME)
+      await assertRevert(
+        passThroughManager.disableMethod(
+          passThrough.address,
+          ownerOf,
+          duration.days(1),
+          fromDeployer
+        ),
+        'The time should be lower than permitted'
+      )
     })
   })
 
